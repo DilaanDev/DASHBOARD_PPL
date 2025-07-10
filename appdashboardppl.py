@@ -375,23 +375,27 @@ if is_single_professional_selected:
 
         fig_daily_detail, ax_daily_detail = plt.subplots(figsize=(14, 7))
 
+        relevant_columns_for_max = []
         if 'Registro' in df_daily_counts_detail.columns:
             # Trazar la línea de Registro
-            line_registro, = ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Registro'], marker='o', linestyle='-', color='#007bff', label='Registros Diarios')
+            ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Registro'], marker='o', linestyle='-', color='#007bff', label='Registros Diarios')
             # Añadir etiquetas de valor para cada punto de Registro
             for i, txt in enumerate(df_daily_counts_detail['Registro']):
                 if txt > 0: # Solo si hay actividad para ese día
                     ax_daily_detail.annotate(int(txt), (df_daily_counts_detail['FECHA_DIA'].iloc[i], df_daily_counts_detail['Registro'].iloc[i]),
                                             textcoords="offset points", xytext=(0,10), ha='center', fontsize=9, color='blue') # Color de texto azul
+            relevant_columns_for_max.append('Registro')
 
         if 'Auditoría' in df_daily_counts_detail.columns:
             # Trazar la línea de Auditoría
-            line_auditoria, = ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Auditoría'], marker='x', linestyle='--', color='#dc3545', label='Auditorías Diarias')
+            ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Auditoría'], marker='x', linestyle='--', color='#dc3545', label='Auditorías Diarias')
             # Añadir etiquetas de valor para cada punto de Auditoría
             for i, txt in enumerate(df_daily_counts_detail['Auditoría']):
                 if txt > 0: # Solo si hay actividad para ese día
                     ax_daily_detail.annotate(int(txt), (df_daily_counts_detail['FECHA_DIA'].iloc[i], df_daily_counts_detail['Auditoría'].iloc[i]),
                                             textcoords="offset points", xytext=(0,-15), ha='center', fontsize=9, color='red') # Color de texto rojo, ligeramente por debajo
+            relevant_columns_for_max.append('Auditoría')
+
 
         ax_daily_detail.set_title(f'Evolución Diaria de Actividades por {selected_professional_detail}')
         ax_daily_detail.set_xlabel('Período (Día)')
@@ -401,9 +405,16 @@ if is_single_professional_selected:
 
         fig_daily_detail.autofmt_xdate(rotation=45)
         ax_daily_detail.xaxis.set_major_locator(plt.MaxNLocator(nbins=10))
-        # Ajusta el límite superior del eje Y para dar espacio a las etiquetas
-        max_y_value = max(df_daily_counts_detail[['Registro', 'Auditoría']].max().max(), 1) # Asegura al menos 1
+
+        # --- FIX: Manejo robusto del límite superior del eje Y ---
+        if relevant_columns_for_max:
+            max_y_value = df_daily_counts_detail[relevant_columns_for_max].max().max()
+        else:
+            max_y_value = 1 # Valor mínimo si no hay datos en las columnas relevantes
+
+        max_y_value = max(max_y_value, 1) # Asegura que el límite sea al menos 1
         ax_daily_detail.set_ylim(bottom=0, top=max_y_value * 1.2) # 20% más alto para las etiquetas
+        # --- FIN FIX ---
 
         plt.tight_layout()
         st.pyplot(fig_daily_detail)
