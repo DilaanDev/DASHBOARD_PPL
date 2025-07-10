@@ -298,7 +298,7 @@ if professional_options_unified.size > 0:
 else:
     st.sidebar.info("Carga el archivo para acceder a los filtros de profesional.")
     professional_seleccionado = ['Todos']
-    is_single_professional_selected = False # Si no hay profesionales, no hay uno solo seleccionado
+    is_single_professional_selected = False
 
 if 'Todos' not in professional_seleccionado:
     df_filtered_unified = df_unified[df_unified['Profesional'].isin(professional_seleccionado)].copy()
@@ -333,8 +333,8 @@ if not is_single_professional_selected:
 
         # Definir un mapa de color monocromático (ej. 'Greens', 'Blues', 'Purples', 'Oranges')
         # Puedes probar 'viridis_r' o 'plasma_r' si quieres un degradado inverso
-        cmap = cm.get_cmap('Greens', len(df_patients_per_professional_unified))
-        colors = [cmap(i) for i in range(cmap.N)]
+        cmap = cm.get_cmap('Greens', len(df_patients_per_professional_unified) + 2) # +2 para asegurar suficientes tonos
+        colors = [cmap(i) for i in range(2, cmap.N)] # Empezar desde un tono más oscuro
 
         bars_unified = ax_unified.bar(df_patients_per_professional_unified['Profesional'],
                                       df_patients_per_professional_unified['pacientes_unicos_total'],
@@ -357,8 +357,6 @@ if not is_single_professional_selected:
         st.info("No hay datos de productividad unificada para los filtros seleccionados.")
 
 # --- SECCIÓN: DETALLE DE EVOLUCIÓN DIARIA POR TIPO DE ACTIVIDAD (si es UN SOLO PROFESIONAL) ---
-# Esta sección ahora se muestra INDEPENDIENTEMENTE de si "Todos" está seleccionado o no,
-# pero solo si se ha filtrado a un único profesional.
 if is_single_professional_selected:
     selected_professional_detail = professional_seleccionado[0]
     st.markdown("---")
@@ -378,9 +376,22 @@ if is_single_professional_selected:
         fig_daily_detail, ax_daily_detail = plt.subplots(figsize=(14, 7))
 
         if 'Registro' in df_daily_counts_detail.columns:
-            ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Registro'], marker='o', linestyle='-', color='#007bff', label='Registros Diarios')
+            # Trazar la línea de Registro
+            line_registro, = ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Registro'], marker='o', linestyle='-', color='#007bff', label='Registros Diarios')
+            # Añadir etiquetas de valor para cada punto de Registro
+            for i, txt in enumerate(df_daily_counts_detail['Registro']):
+                if txt > 0: # Solo si hay actividad para ese día
+                    ax_daily_detail.annotate(int(txt), (df_daily_counts_detail['FECHA_DIA'].iloc[i], df_daily_counts_detail['Registro'].iloc[i]),
+                                            textcoords="offset points", xytext=(0,10), ha='center', fontsize=9, color='blue') # Color de texto azul
+
         if 'Auditoría' in df_daily_counts_detail.columns:
-            ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Auditoría'], marker='x', linestyle='--', color='#dc3545', label='Auditorías Diarias')
+            # Trazar la línea de Auditoría
+            line_auditoria, = ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Auditoría'], marker='x', linestyle='--', color='#dc3545', label='Auditorías Diarias')
+            # Añadir etiquetas de valor para cada punto de Auditoría
+            for i, txt in enumerate(df_daily_counts_detail['Auditoría']):
+                if txt > 0: # Solo si hay actividad para ese día
+                    ax_daily_detail.annotate(int(txt), (df_daily_counts_detail['FECHA_DIA'].iloc[i], df_daily_counts_detail['Auditoría'].iloc[i]),
+                                            textcoords="offset points", xytext=(0,-15), ha='center', fontsize=9, color='red') # Color de texto rojo, ligeramente por debajo
 
         ax_daily_detail.set_title(f'Evolución Diaria de Actividades por {selected_professional_detail}')
         ax_daily_detail.set_xlabel('Período (Día)')
@@ -390,7 +401,9 @@ if is_single_professional_selected:
 
         fig_daily_detail.autofmt_xdate(rotation=45)
         ax_daily_detail.xaxis.set_major_locator(plt.MaxNLocator(nbins=10))
-        ax_daily_detail.set_ylim(bottom=0)
+        # Ajusta el límite superior del eje Y para dar espacio a las etiquetas
+        max_y_value = max(df_daily_counts_detail[['Registro', 'Auditoría']].max().max(), 1) # Asegura al menos 1
+        ax_daily_detail.set_ylim(bottom=0, top=max_y_value * 1.2) # 20% más alto para las etiquetas
 
         plt.tight_layout()
         st.pyplot(fig_daily_detail)
