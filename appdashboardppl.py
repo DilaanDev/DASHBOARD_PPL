@@ -14,6 +14,9 @@ st.set_page_config(
 )
 
 # 1. Configuración de Persistencia de Datos
+# La carpeta 'persisted_data' se crea un nivel arriba del directorio actual del script.
+# Esto es útil si tu script está en un subdirectorio (ej. 'src/app.py').
+# Si tu script está en la raíz de tu repo, puedes cambiarlo a "./persisted_data"
 PERSISTED_DATA_DIR = "../persisted_data"
 os.makedirs(PERSISTED_DATA_DIR, exist_ok=True) # Asegúrate de que la carpeta exista
 
@@ -21,6 +24,7 @@ os.makedirs(PERSISTED_DATA_DIR, exist_ok=True) # Asegúrate de que la carpeta ex
 PRODUCTIVITY_FILE = os.path.join(PERSISTED_DATA_DIR, "df_productivity.parquet")
 
 # 2. Inicializar st.session_state
+# Se usa st.session_state para mantener el estado de la aplicación entre reruns.
 if 'productivity_uploaded' not in st.session_state:
     st.session_state.productivity_uploaded = False
 if 'df_productivity' not in st.session_state:
@@ -47,7 +51,7 @@ def load_dataframe(filepath):
     if os.path.exists(filepath):
         try:
             df_loaded = pd.read_parquet(filepath)
-            # Asegura tipos de string al cargar desde Parquet, incluyendo las columnas relevantes
+            # Asegura tipos de string al cargar desde Parquet para columnas relevantes
             string_cols_to_convert_on_load = ['RESPONSABLE DEL REGISTRO', 'IDENTIFICACIÓN DEL PPL',
                                               'CLASIFICACION DE NOVEDAD', 'SEGUNDO APELLIDO', 'PRIMER NOMBRE',
                                               'SEGUNDO NOMBRE', 'PRIMER APELLIDO', 'RESPONSABLE AUDITORIA']
@@ -125,7 +129,7 @@ if not st.session_state.productivity_uploaded:
     if uploaded_file_widget is not None:
         df_new = load_uploaded_data(uploaded_file_widget)
         if df_new is not None:
-            # Convertir todas las columnas del DataFrame a mayúsculas
+            # Convertir todas las columnas del DataFrame a mayúsculas para evitar errores
             df_new.columns = df_new.columns.str.upper()
 
             # Convertir explícitamente a string las columnas problemáticas ANTES de la validación
@@ -161,7 +165,7 @@ if not st.session_state.productivity_uploaded:
                 st.session_state.productivity_uploaded = True
                 st.session_state.df_productivity = df_new
                 st.success("Archivo cargado y preprocesado correctamente desde la hoja 'NOVEDADES JULIO'.")
-                st.rerun()
+                st.rerun() # Recarga la app para aplicar los datos cargados
         else:
             st.error("Fallo al cargar el archivo.")
 else:
@@ -183,8 +187,8 @@ def clear_uploaded_files():
     if os.path.exists(PRODUCTIVITY_FILE):
         os.remove(PRODUCTIVITY_FILE)
         st.sidebar.info(f"Archivo persistente {os.path.basename(PRODUCTIVITY_FILE)} eliminado.")
-    st.cache_data.clear()
-    st.rerun()
+    st.cache_data.clear() # Limpia la caché de st.cache_data
+    st.rerun() # Recarga la app para reflejar los cambios
 
 st.sidebar.button("Limpiar archivo cargado y persistente", on_click=clear_uploaded_files, key="clear_files_button")
 
@@ -256,6 +260,7 @@ unified_data = []
 # Iterar sobre las filas del DataFrame filtrado por fecha
 for index, row in df_filtered_date.iterrows():
     # Si hay un Responsable del Registro, añadir una entrada de "Registro"
+    # Aseguramos que la columna exista y que el valor no sea nulo o vacío
     if 'RESPONSABLE DEL REGISTRO' in row and pd.notna(row['RESPONSABLE DEL REGISTRO']) and row['RESPONSABLE DEL REGISTRO'] != '':
         unified_data.append({
             'Profesional': row['RESPONSABLE DEL REGISTRO'],
@@ -265,6 +270,7 @@ for index, row in df_filtered_date.iterrows():
         })
 
     # Si hay un Responsable de Auditoría, añadir una entrada de "Auditoría"
+    # Aseguramos que la columna exista y que el valor no sea nulo o vacío
     if 'RESPONSABLE AUDITORIA' in row and pd.notna(row['RESPONSABLE AUDITORIA']) and row['RESPONSABLE AUDITORIA'] != '':
         unified_data.append({
             'Profesional': row['RESPONSABLE AUDITORIA'],
@@ -280,6 +286,7 @@ if unified_data:
     df_unified['Profesional'] = df_unified['Profesional'].astype(str)
     df_unified['IDENTIFICACIÓN DEL PPL'] = df_unified['IDENTIFICACIÓN DEL PPL'].astype(str)
 else:
+    # Si no hay datos unificados, se crea un DataFrame vacío con las columnas esperadas
     df_unified = pd.DataFrame(columns=['Profesional', 'Tipo_Actividad', 'IDENTIFICACIÓN DEL PPL', 'FECHA DE REGISTRO DE NOVEDAD'])
     st.warning("No se encontraron profesionales de registro o auditoría para analizar en el rango de fechas seleccionado.")
     st.stop()
@@ -299,14 +306,14 @@ if professional_options_unified.size > 0:
     )
 
     if 'Todos' in professional_seleccionado and len(professional_seleccionado) > 1:
-        professional_seleccionado = ['Todos']
+        professional_seleccionado = ['Todos'] # Si "Todos" está y hay otras selecciones, solo se considera "Todos"
         st.sidebar.info("Cuando 'Todos' está seleccionado, se ignoran las otras selecciones de profesional.")
-    elif not professional_seleccionado:
+    elif not professional_seleccionado: # Si no se selecciona nada, se vuelve a "Todos"
         professional_seleccionado = ['Todos']
         st.sidebar.info("No se ha seleccionado ningún profesional. Mostrando datos para todos los profesionales.")
 else:
     st.sidebar.info("Carga el archivo para acceder a los filtros de profesional.")
-    professional_seleccionado = ['Todos']
+    professional_seleccionado = ['Todos'] # Valor por defecto si no hay profesionales cargados
 
 # Aplicar el filtro de profesionales al DataFrame unificado
 if 'Todos' not in professional_seleccionado:
@@ -345,21 +352,29 @@ if not df_patients_per_professional_unified.empty:
     ax_unified.set_title('Pacientes Únicos por Profesional (Registro y Auditoría)')
     ax_unified.set_xlabel('Profesional')
     ax_unified.set_ylabel('Número de Pacientes Únicos')
-    ax_unified.tick_params(axis='x', rotation=45) # Ajuste de rotación y alineación de etiquetas
+
+    # --- CORRECCIÓN PARA EL ERROR ValueError: 'keyword ha is not recognized' ---
+    # En lugar de tick_params para rotation y ha, que a veces causa problemas,
+    # se establece la rotación directamente en las etiquetas con plt.xticks().
+    plt.xticks(rotation=45, ha='right') # Establece rotación y alineación horizontal a 'right'
+
+    # Ajuste de diseño para que las etiquetas no se superpongan
+    plt.tight_layout()
 
     # Añadir etiquetas de valor a las barras
     for bar in bars_unified:
         yval = bar.get_height()
         ax_unified.text(bar.get_x() + bar.get_width()/2, yval + 5, int(yval), ha='center', va='bottom', fontsize=9)
 
-    ax_unified.set_ylim(bottom=0, top=df_patients_per_professional_unified['pacientes_unicos_total'].max() * 1.15) # Ajustar límite Y para espacio de etiquetas
+    # Ajustar límite Y para dar espacio a las etiquetas de valor
+    ax_unified.set_ylim(bottom=0, top=df_patients_per_professional_unified['pacientes_unicos_total'].max() * 1.15)
 
-    plt.tight_layout()
     st.pyplot(fig_unified)
 else:
     st.info("No hay datos de productividad unificada para los filtros seleccionados.")
 
 # --- SECCIÓN OPCIONAL: DETALLE DE EVOLUCIÓN DIARIA POR TIPO DE ACTIVIDAD (SI SELECCIONA UN SOLO PROFESIONAL) ---
+# Esta sección se muestra solo si un único profesional ha sido seleccionado en el filtro unificado.
 if len(professional_seleccionado) == 1 and 'Todos' not in professional_seleccionado:
     selected_professional_detail = professional_seleccionado[0]
     st.markdown("---")
@@ -368,10 +383,11 @@ if len(professional_seleccionado) == 1 and 'Todos' not in professional_seleccion
 
     # Filtrar solo por el profesional seleccionado en el df_unified
     df_daily_activity_detail = df_filtered_unified[df_filtered_unified['Profesional'] == selected_professional_detail].copy()
+    # Crear una columna de fecha simple (sin hora) para agrupar
     df_daily_activity_detail['FECHA_DIA'] = df_daily_activity_detail['FECHA DE REGISTRO DE NOVEDAD'].dt.date
 
     if not df_daily_activity_detail.empty:
-        # Contar actividades diarias por tipo y profesional
+        # Contar actividades diarias por tipo y profesional, pivotando 'Tipo_Actividad' a columnas
         df_daily_counts_detail = df_daily_activity_detail.groupby(['FECHA_DIA', 'Tipo_Actividad']).size().unstack(fill_value=0).reset_index()
         df_daily_counts_detail = df_daily_counts_detail.sort_values(by='FECHA_DIA')
 
@@ -380,32 +396,25 @@ if len(professional_seleccionado) == 1 and 'Todos' not in professional_seleccion
 
         fig_daily_detail, ax_daily_detail = plt.subplots(figsize=(14, 7))
 
-        # Graficar cada tipo de actividad si existe
+        # Graficar cada tipo de actividad si existe en los datos filtrados
         if 'Registro' in df_daily_counts_detail.columns:
             ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Registro'], marker='o', linestyle='-', color='blue', label='Registros Diarios')
         if 'Auditoría' in df_daily_counts_detail.columns:
             ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Auditoría'], marker='x', linestyle='--', color='red', label='Auditorías Diarias')
 
-        ax_daily_detail.set_title(f'Evolución Diaria de Actividades para {selected_professional_detail}')
+        ax_daily_detail.set_title(f'Evolución Diaria de Actividades por {selected_professional_detail}')
         ax_daily_detail.set_xlabel('Período (Día)')
         ax_daily_detail.set_ylabel('Total Actividades Diarias')
         ax_daily_detail.grid(True, linestyle='--', alpha=0.7)
-        ax_daily_detail.legend()
+        ax_daily_detail.legend() # Muestra la leyenda de los tipos de actividad
 
+        # Ajuste de la rotación de las etiquetas del eje X para fechas
         fig_daily_detail.autofmt_xdate(rotation=45)
+        # Limitar el número de ticks en el eje X para evitar superposición en rangos largos
         ax_daily_detail.xaxis.set_major_locator(plt.MaxNLocator(nbins=10))
         ax_daily_detail.set_ylim(bottom=0) # Asegurar que el eje Y comience en 0
 
-        # Ajuste para etiquetas de valores en el gráfico (opcional, puede ser ruidoso con muchos puntos)
-        # for col in ['Registro', 'Auditoría']:
-        #     if col in df_daily_counts_detail.columns:
-        #         for i, txt in enumerate(df_daily_counts_detail[col]):
-        #             if txt > 0: # Solo si hay actividad para ese día
-        #                 ax_daily_detail.annotate(txt, (df_daily_counts_detail['FECHA_DIA'].iloc[i], df_daily_counts_detail[col].iloc[i]),
-        #                                         textcoords="offset points", xytext=(0,10), ha='center', fontsize=8)
-
-
-        plt.tight_layout()
+        plt.tight_layout() # Asegura que todos los elementos se ajusten bien
         st.pyplot(fig_daily_detail)
     else:
         st.info(f"No hay datos de actividad diaria detallada para {selected_professional_detail} en el rango de fechas seleccionado.")
