@@ -345,7 +345,7 @@ if not df_patients_per_professional_unified.empty:
     ax_unified.set_title('Pacientes Únicos por Profesional (Registro y Auditoría)')
     ax_unified.set_xlabel('Profesional')
     ax_unified.set_ylabel('Número de Pacientes Únicos')
-    ax_unified.tick_params(axis='x', rotation=45, ha='right') # Ajuste de rotación y alineación de etiquetas
+    ax_unified.tick_params(axis='x', rotation=45) # Ajuste de rotación y alineación de etiquetas
 
     # Añadir etiquetas de valor a las barras
     for bar in bars_unified:
