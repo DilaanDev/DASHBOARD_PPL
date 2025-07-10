@@ -47,8 +47,7 @@ def load_dataframe(filepath):
     if os.path.exists(filepath):
         try:
             df_loaded = pd.read_parquet(filepath)
-            # Asegura tipos de string al cargar desde Parquet, incluyendo la nueva columna
-            # Incluye todas las columnas que pueden contener nombres de profesionales o identificadores
+            # Asegura tipos de string al cargar desde Parquet, incluyendo las columnas relevantes
             string_cols_to_convert_on_load = ['RESPONSABLE DEL REGISTRO', 'IDENTIFICACIÓN DEL PPL',
                                               'CLASIFICACION DE NOVEDAD', 'SEGUNDO APELLIDO', 'PRIMER NOMBRE',
                                               'SEGUNDO NOMBRE', 'PRIMER APELLIDO', 'RESPONSABLE AUDITORIA']
@@ -96,7 +95,7 @@ def load_uploaded_data(uploaded_file):
 if not st.session_state.productivity_uploaded and os.path.exists(PRODUCTIVITY_FILE):
     st.session_state.df_productivity = load_dataframe(PRODUCTIVITY_FILE)
     if st.session_state.df_productivity is not None:
-        # Aseguramos tipos de string y datetime al cargar de persistencia, incluyendo las nuevas columnas relevantes
+        # Aseguramos tipos de string y datetime al cargar de persistencia
         string_cols_to_convert_on_load_state = ['RESPONSABLE DEL REGISTRO', 'IDENTIFICACIÓN DEL PPL',
                                                 'CLASIFICACION DE NOVEDAD', 'SEGUNDO APELLIDO', 'PRIMER NOMBRE',
                                                 'SEGUNDO NOMBRE', 'PRIMER APELLIDO', 'RESPONSABLE AUDITORIA']
@@ -126,18 +125,16 @@ if not st.session_state.productivity_uploaded:
     if uploaded_file_widget is not None:
         df_new = load_uploaded_data(uploaded_file_widget)
         if df_new is not None:
-            # Convertir todas las columnas del DataFrame a mayúsculas para la comparación y evitar errores
+            # Convertir todas las columnas del DataFrame a mayúsculas
             df_new.columns = df_new.columns.str.upper()
 
             # Convertir explícitamente a string las columnas problemáticas ANTES de la validación
-            # Incluir 'RESPONSABLE AUDITORIA' aquí también
             string_cols_to_convert = ['RESPONSABLE DEL REGISTRO', 'IDENTIFICACIÓN DEL PPL', 'CLASIFICACION DE NOVEDAD', 'SEGUNDO APELLIDO', 'PRIMER NOMBRE', 'SEGUNDO NOMBRE', 'PRIMER APELLIDO', 'RESPONSABLE AUDITORIA']
             for col in string_cols_to_convert:
                 if col in df_new.columns:
                     df_new[col] = df_new[col].fillna('').astype(str)
 
             # CONVERSIÓN DE TIPO DE DATO: columnas críticas a str y datetime
-            # Ahora, 'RESPONSABLE AUDITORIA' se valida como una columna crítica si está presente
             required_cols_for_check = {
                 'RESPONSABLE DEL REGISTRO': str,
                 'FECHA DE REGISTRO DE NOVEDAD': 'datetime',
@@ -205,7 +202,7 @@ st.sidebar.subheader("Filtros de Análisis")
 # Inicializamos df_filtered_date para que siempre tenga un valor
 df_filtered_date = df.copy()
 
-# *** BLOQUE DE FILTRADO DE FECHAS (AHORA DENTRO DE LA COMPROBACIÓN DE COLUMNA) ***
+# *** BLOQUE DE FILTRADO DE FECHAS ***
 if 'FECHA DE REGISTRO DE NOVEDAD' in df.columns:
     min_date_global = df['FECHA DE REGISTRO DE NOVEDAD'].min().date()
     max_date_global = df['FECHA DE REGISTRO DE NOVEDAD'].max().date()
@@ -244,25 +241,58 @@ if 'FECHA DE REGISTRO DE NOVEDAD' in df.columns:
         st.stop()
 
 else:
-    # Si FECHA DE REGISTRO DE NOVEDAD es missing, display an error and stop.
     st.error("❌ Error crítico: La columna 'FECHA DE REGISTRO DE NOVEDAD' no se encontró en el archivo cargado. Asegúrate de que el nombre sea **exacto** y la columna exista.")
     st.stop()
 # *** FIN DEL BLOQUE DE FILTRADO DE FECHAS ***
 
+# --- PREPARACIÓN DE DATOS PARA ANÁLISIS UNIFICADO ---
+# Se crea un DataFrame temporal para el análisis unificado.
+# Cada fila en el original puede generar una o dos filas en el unificado,
+# dependiendo de si el profesional es Responsable de Registro o Auditoría.
 
-# --- FILTRO DE PROFESIONAL (UNIFICADO PARA REGISTRO Y AUDITORÍA) ---
-# Se asegura que las columnas existan antes de intentar acceder a ellas
-professional_options_union = []
-if 'RESPONSABLE DEL REGISTRO' in df_filtered_date.columns:
-    professional_options_union.extend(df_filtered_date['RESPONSABLE DEL REGISTRO'].dropna().astype(str).unique())
-if 'RESPONSABLE AUDITORIA' in df_filtered_date.columns:
-    professional_options_union.extend(df_filtered_date['RESPONSABLE AUDITORIA'].dropna().astype(str).unique())
+# Lista para almacenar los datos transformados
+unified_data = []
 
-if professional_options_union:
-    professional_options_union = sorted(list(set(professional_options_union))) # Elimina duplicados y ordena
-    professional_options = ['Todos'] + professional_options_union
+# Iterar sobre las filas del DataFrame filtrado por fecha
+for index, row in df_filtered_date.iterrows():
+    # Si hay un Responsable del Registro, añadir una entrada de "Registro"
+    if 'RESPONSABLE DEL REGISTRO' in row and pd.notna(row['RESPONSABLE DEL REGISTRO']) and row['RESPONSABLE DEL REGISTRO'] != '':
+        unified_data.append({
+            'Profesional': row['RESPONSABLE DEL REGISTRO'],
+            'Tipo_Actividad': 'Registro',
+            'IDENTIFICACIÓN DEL PPL': row['IDENTIFICACIÓN DEL PPL'],
+            'FECHA DE REGISTRO DE NOVEDAD': row['FECHA DE REGISTRO DE NOVEDAD']
+        })
+
+    # Si hay un Responsable de Auditoría, añadir una entrada de "Auditoría"
+    if 'RESPONSABLE AUDITORIA' in row and pd.notna(row['RESPONSABLE AUDITORIA']) and row['RESPONSABLE AUDITORIA'] != '':
+        unified_data.append({
+            'Profesional': row['RESPONSABLE AUDITORIA'],
+            'Tipo_Actividad': 'Auditoría',
+            'IDENTIFICACIÓN DEL PPL': row['IDENTIFICACIÓN DEL PPL'],
+            'FECHA DE REGISTRO DE NOVEDAD': row['FECHA DE REGISTRO DE NOVEDAD']
+        })
+
+# Crear el DataFrame unificado
+if unified_data:
+    df_unified = pd.DataFrame(unified_data)
+    # Convertir a string para evitar problemas de tipo si vienen de diferentes fuentes
+    df_unified['Profesional'] = df_unified['Profesional'].astype(str)
+    df_unified['IDENTIFICACIÓN DEL PPL'] = df_unified['IDENTIFICACIÓN DEL PPL'].astype(str)
+else:
+    df_unified = pd.DataFrame(columns=['Profesional', 'Tipo_Actividad', 'IDENTIFICACIÓN DEL PPL', 'FECHA DE REGISTRO DE NOVEDAD'])
+    st.warning("No se encontraron profesionales de registro o auditoría para analizar en el rango de fechas seleccionado.")
+    st.stop()
+
+
+# --- FILTRO DE PROFESIONAL (UNIFICADO) ---
+# Ahora el filtro se basa en la columna 'Profesional' del DataFrame unificado
+professional_options_unified = df_unified['Profesional'].dropna().unique()
+
+if professional_options_unified.size > 0:
+    professional_options = ['Todos'] + sorted(list(professional_options_unified))
     professional_seleccionado = st.sidebar.multiselect(
-        'Filtrar por Profesional (Registro o Auditoría):',
+        'Filtrar por Profesional:',
         options=professional_options,
         default=['Todos'],
         key="filter_professional_unified"
@@ -278,194 +308,104 @@ else:
     st.sidebar.info("Carga el archivo para acceder a los filtros de profesional.")
     professional_seleccionado = ['Todos']
 
-# Aplicar el filtro de profesionales a df_filtered
+# Aplicar el filtro de profesionales al DataFrame unificado
 if 'Todos' not in professional_seleccionado:
-    # Filtra si el profesional está en la columna de registro O en la columna de auditoría
-    df_filtered = df_filtered_date[
-        (df_filtered_date['RESPONSABLE DEL REGISTRO'].isin(professional_seleccionado)) |
-        (df_filtered_date['RESPONSABLE AUDITORIA'].isin(professional_seleccionado))
-    ].copy()
+    df_filtered_unified = df_unified[df_unified['Profesional'].isin(professional_seleccionado)].copy()
 else:
-    df_filtered = df_filtered_date.copy()
+    df_filtered_unified = df_unified.copy()
 
-if df_filtered.empty:
+if df_filtered_unified.empty:
     st.warning("No hay datos disponibles para la combinación de filtros seleccionada. Por favor, ajusta los filtros.")
     st.stop()
-# --- FIN FILTRO DE PROFESIONAL ---
 
-
-# --- ANÁLISIS DE PRODUCTIVIDAD DEL PROFESIONAL (RESPONSABLE DEL REGISTRO) ---
+# --- ANÁLISIS DE PRODUCTIVIDAD UNIFICADO ---
 st.markdown("---")
-st.markdown("## Productividad del Profesional por **Registro**")
-st.markdown("Aquí puedes ver la productividad de los profesionales basada en la cantidad de pacientes que han **registrado**.")
+st.markdown("## Productividad General del Profesional (Registro y Auditoría)")
+st.markdown("Aquí puedes ver la productividad consolidada de los profesionales, basada en los pacientes que han **registrado o auditado**.")
 
-if 'RESPONSABLE DEL REGISTRO' in df_filtered.columns and 'IDENTIFICACIÓN DEL PPL' in df_filtered.columns:
+# Calcular pacientes únicos por profesional (sin importar el tipo de actividad)
+df_patients_per_professional_unified = df_filtered_unified.groupby('Profesional').agg(
+    pacientes_unicos_total=('IDENTIFICACIÓN DEL PPL', 'nunique'),
+    actividades_totales=('IDENTIFICACIÓN DEL PPL', 'count')
+).reset_index()
 
-    # Filtra el DataFrame para incluir solo los registros donde el profesional seleccionado es el RESPONSABLE DEL REGISTRO
-    df_for_analysis_registro = df_filtered[df_filtered['RESPONSABLE DEL REGISTRO'].isin(professional_seleccionado)].copy() if 'Todos' not in professional_seleccionado else df_filtered.copy()
+df_patients_per_professional_unified['pacientes_unicos_total'] = df_patients_per_professional_unified['pacientes_unicos_total'].astype(int)
+df_patients_per_professional_unified['actividades_totales'] = df_patients_per_professional_unified['actividades_totales'].astype(int)
 
-    if not df_for_analysis_registro.empty:
-        df_patients_per_professional_registro = df_for_analysis_registro.groupby('RESPONSABLE DEL REGISTRO').agg(
-            total_pacientes_revisados=('IDENTIFICACIÓN DEL PPL', 'nunique'),
-            registros_totales=('IDENTIFICACIÓN DEL PPL', 'count')
-        ).reset_index()
+st.markdown("### Tabla de Pacientes Únicos y Actividades Totales por Profesional")
+st.dataframe(df_patients_per_professional_unified.set_index('Profesional'))
 
-        df_patients_per_professional_registro['total_pacientes_revisados'] = df_patients_per_professional_registro['total_pacientes_revisados'].astype(int)
-        df_patients_per_professional_registro['registros_totales'] = df_patients_per_professional_registro['registros_totales'].astype(int)
+# Generar el gráfico de barras unificado
+if not df_patients_per_professional_unified.empty:
+    fig_unified, ax_unified = plt.subplots(figsize=(14, 7))
+    bars_unified = ax_unified.bar(df_patients_per_professional_unified['Profesional'],
+                                  df_patients_per_professional_unified['pacientes_unicos_total'],
+                                  color='mediumseagreen') # Color neutro y vibrante
 
-        st.markdown("### Tabla de Pacientes Únicos Registrados por Profesional")
-        st.dataframe(df_patients_per_professional_registro.set_index('RESPONSABLE DEL REGISTRO'))
+    ax_unified.set_title('Pacientes Únicos por Profesional (Registro y Auditoría)')
+    ax_unified.set_xlabel('Profesional')
+    ax_unified.set_ylabel('Número de Pacientes Únicos')
+    ax_unified.tick_params(axis='x', rotation=45, ha='right') # Ajuste de rotación y alineación de etiquetas
 
-        # Asegúrate de tener datos para graficar
-        if not df_patients_per_professional_registro.empty:
-            fig_registro, ax_registro = plt.subplots(figsize=(12, 6))
-            bars_registro = ax_registro.bar(df_patients_per_professional_registro['RESPONSABLE DEL REGISTRO'], df_patients_per_professional_registro['total_pacientes_revisados'], color='skyblue')
+    # Añadir etiquetas de valor a las barras
+    for bar in bars_unified:
+        yval = bar.get_height()
+        ax_unified.text(bar.get_x() + bar.get_width()/2, yval + 5, int(yval), ha='center', va='bottom', fontsize=9)
 
-            ax_registro.set_title('Pacientes Únicos Registrados por Profesional')
-            ax_registro.set_xlabel('Responsable del Registro')
-            ax_registro.set_ylabel('Número de Pacientes Únicos')
-            ax_registro.tick_params(axis='x', rotation=45)
+    ax_unified.set_ylim(bottom=0, top=df_patients_per_professional_unified['pacientes_unicos_total'].max() * 1.15) # Ajustar límite Y para espacio de etiquetas
 
-            for bar in bars_registro:
-                yval = bar.get_height()
-                ax_registro.text(bar.get_x() + bar.get_width()/2, yval + 5, int(yval), ha='center', va='bottom', fontsize=9)
-
-            plt.tight_layout()
-            st.pyplot(fig_registro)
-        else:
-            st.info("No hay datos para generar el gráfico de Pacientes Únicos Registrados.")
-
-        # Evolución diaria si solo un profesional está seleccionado PARA REGISTRO
-        if len(professional_seleccionado) == 1 and 'Todos' not in professional_seleccionado:
-            selected_professional_registro = professional_seleccionado[0] # Obtener el único seleccionado
-            # Solo si el profesional seleccionado es de hecho un responsable de registro en el df filtrado
-            if selected_professional_registro in df_filtered['RESPONSABLE DEL REGISTRO'].unique():
-                st.subheader(f"Evolución Diaria de Registros para: {selected_professional_registro}")
-
-                df_daily_activity_registro = df_filtered[df_filtered['RESPONSABLE DEL REGISTRO'] == selected_professional_registro].copy()
-                df_daily_activity_registro['FECHA DE REGISTRO DE NOVEDAD'] = pd.to_datetime(df_daily_activity_registro['FECHA DE REGISTRO DE NOVEDAD'])
-                df_daily_counts_registro = df_daily_activity_registro.groupby(df_daily_activity_registro['FECHA DE REGISTRO DE NOVEDAD'].dt.date).size().reset_index(name='Total Registros Diarios')
-                df_daily_counts_registro.columns = ['Fecha', 'Total Registros Diarios']
-                df_daily_counts_registro = df_daily_counts_registro.sort_values(by='Fecha')
-
-                if not df_daily_counts_registro.empty:
-                    st.markdown(f"**Acumulado Diario de Registros para {selected_professional_registro}:**")
-                    st.dataframe(df_daily_counts_registro)
-
-                    fig_daily_registro, ax_daily_registro = plt.subplots(figsize=(14, 7))
-                    ax_daily_registro.plot(df_daily_counts_registro['Fecha'], df_daily_counts_registro['Total Registros Diarios'], marker='o', linestyle='-', color='indigo')
-
-                    ax_daily_registro.set_title(f'Evolución de Registros Diarios por {selected_professional_registro}')
-                    ax_daily_registro.set_xlabel('Período (Día)')
-                    ax_daily_registro.set_ylabel('Total Registros Diarios')
-                    ax_daily_registro.grid(True, linestyle='--', alpha=0.7)
-
-                    fig_daily_registro.autofmt_xdate(rotation=45)
-                    ax_daily_registro.xaxis.set_major_locator(plt.MaxNLocator(nbins=10))
-
-                    for i, txt in enumerate(df_daily_counts_registro['Total Registros Diarios']):
-                        ax_daily_registro.annotate(txt, (df_daily_counts_registro['Fecha'].iloc[i], df_daily_counts_registro['Total Registros Diarios'].iloc[i]),
-                                    textcoords="offset points", xytext=(0,10), ha='center', fontsize=9, color='darkgreen')
-
-                    ax_daily_registro.set_ylim(bottom=0, top=df_daily_counts_registro['Total Registros Diarios'].max() * 1.15)
-
-                    plt.tight_layout()
-                    st.pyplot(fig_daily_registro)
-                else:
-                    st.info(f"No hay datos de registros diarios para {selected_professional_registro} en el rango de fechas seleccionado.")
-            else:
-                st.info(f"El profesional '{selected_professional_registro}' no aparece como 'Responsable del Registro' en los datos filtrados.")
-
-    else: # Esto cubre el caso de que df_for_analysis_registro esté vacío
-        st.info("No hay datos de registros para los profesionales seleccionados en el rango de fechas.")
-
+    plt.tight_layout()
+    st.pyplot(fig_unified)
 else:
-    st.warning("Las columnas 'RESPONSABLE DEL REGISTRO' o 'IDENTIFICACIÓN DEL PPL' no se encontraron en el archivo. No se puede calcular la productividad por registro.")
+    st.info("No hay datos de productividad unificada para los filtros seleccionados.")
 
-# --- ANÁLISIS DE PRODUCTIVIDAD DEL PROFESIONAL (RESPONSABLE AUDITORIA) ---
-st.markdown("---")
-st.markdown("## Productividad del Profesional por **Auditoría**")
-st.markdown("Esta sección muestra la productividad de los profesionales basada en la cantidad de pacientes que han **auditado**.")
+# --- SECCIÓN OPCIONAL: DETALLE DE EVOLUCIÓN DIARIA POR TIPO DE ACTIVIDAD (SI SELECCIONA UN SOLO PROFESIONAL) ---
+if len(professional_seleccionado) == 1 and 'Todos' not in professional_seleccionado:
+    selected_professional_detail = professional_seleccionado[0]
+    st.markdown("---")
+    st.subheader(f"Evolución Diaria Detallada para: {selected_professional_detail}")
+    st.markdown("Desglose de actividad diaria como **Registrador** y **Auditor**.")
 
-if 'RESPONSABLE AUDITORIA' in df_filtered.columns and 'IDENTIFICACIÓN DEL PPL' in df_filtered.columns:
+    # Filtrar solo por el profesional seleccionado en el df_unified
+    df_daily_activity_detail = df_filtered_unified[df_filtered_unified['Profesional'] == selected_professional_detail].copy()
+    df_daily_activity_detail['FECHA_DIA'] = df_daily_activity_detail['FECHA DE REGISTRO DE NOVEDAD'].dt.date
 
-    # Filtra el DataFrame para incluir solo las auditorías donde el profesional seleccionado es el RESPONSABLE AUDITORIA
-    df_for_analysis_auditoria = df_filtered[df_filtered['RESPONSABLE AUDITORIA'].isin(professional_seleccionado)].copy() if 'Todos' not in professional_seleccionado else df_filtered.copy()
+    if not df_daily_activity_detail.empty:
+        # Contar actividades diarias por tipo y profesional
+        df_daily_counts_detail = df_daily_activity_detail.groupby(['FECHA_DIA', 'Tipo_Actividad']).size().unstack(fill_value=0).reset_index()
+        df_daily_counts_detail = df_daily_counts_detail.sort_values(by='FECHA_DIA')
 
-    if not df_for_analysis_auditoria.empty:
-        df_patients_per_auditor = df_for_analysis_auditoria.groupby('RESPONSABLE AUDITORIA').agg(
-            total_pacientes_auditados=('IDENTIFICACIÓN DEL PPL', 'nunique'),
-            auditorias_totales=('IDENTIFICACIÓN DEL PPL', 'count')
-        ).reset_index()
+        st.markdown(f"**Acumulado Diario por Tipo de Actividad para {selected_professional_detail}:**")
+        st.dataframe(df_daily_counts_detail)
 
-        df_patients_per_auditor['total_pacientes_auditados'] = df_patients_per_auditor['total_pacientes_auditados'].astype(int)
-        df_patients_per_auditor['auditorias_totales'] = df_patients_per_auditor['auditorias_totales'].astype(int)
+        fig_daily_detail, ax_daily_detail = plt.subplots(figsize=(14, 7))
 
-        st.markdown("### Tabla de Pacientes Únicos Auditados por Profesional")
-        st.dataframe(df_patients_per_auditor.set_index('RESPONSABLE AUDITORIA'))
+        # Graficar cada tipo de actividad si existe
+        if 'Registro' in df_daily_counts_detail.columns:
+            ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Registro'], marker='o', linestyle='-', color='blue', label='Registros Diarios')
+        if 'Auditoría' in df_daily_counts_detail.columns:
+            ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Auditoría'], marker='x', linestyle='--', color='red', label='Auditorías Diarias')
 
-        # Asegúrate de tener datos para graficar
-        if not df_patients_per_auditor.empty:
-            fig_auditor, ax_auditor = plt.subplots(figsize=(12, 6))
-            bars_auditor = ax_auditor.bar(df_patients_per_auditor['RESPONSABLE AUDITORIA'], df_patients_per_auditor['total_pacientes_auditados'], color='lightcoral')
+        ax_daily_detail.set_title(f'Evolución Diaria de Actividades para {selected_professional_detail}')
+        ax_daily_detail.set_xlabel('Período (Día)')
+        ax_daily_detail.set_ylabel('Total Actividades Diarias')
+        ax_daily_detail.grid(True, linestyle='--', alpha=0.7)
+        ax_daily_detail.legend()
 
-            ax_auditor.set_title('Pacientes Únicos Auditados por Responsable de Auditoría')
-            ax_auditor.set_xlabel('Responsable de Auditoría')
-            ax_auditor.set_ylabel('Número de Pacientes Únicos')
-            ax_auditor.tick_params(axis='x', rotation=45)
+        fig_daily_detail.autofmt_xdate(rotation=45)
+        ax_daily_detail.xaxis.set_major_locator(plt.MaxNLocator(nbins=10))
+        ax_daily_detail.set_ylim(bottom=0) # Asegurar que el eje Y comience en 0
 
-            for bar in bars_auditor:
-                yval = bar.get_height()
-                ax_auditor.text(bar.get_x() + bar.get_width()/2, yval + 5, int(yval), ha='center', va='bottom', fontsize=9)
+        # Ajuste para etiquetas de valores en el gráfico (opcional, puede ser ruidoso con muchos puntos)
+        # for col in ['Registro', 'Auditoría']:
+        #     if col in df_daily_counts_detail.columns:
+        #         for i, txt in enumerate(df_daily_counts_detail[col]):
+        #             if txt > 0: # Solo si hay actividad para ese día
+        #                 ax_daily_detail.annotate(txt, (df_daily_counts_detail['FECHA_DIA'].iloc[i], df_daily_counts_detail[col].iloc[i]),
+        #                                         textcoords="offset points", xytext=(0,10), ha='center', fontsize=8)
 
-            plt.tight_layout()
-            st.pyplot(fig_auditor)
-        else:
-            st.info("No hay datos para generar el gráfico de Pacientes Únicos Auditados.")
 
-        # Evolución diaria si solo un profesional está seleccionado PARA AUDITORÍA
-        if len(professional_seleccionado) == 1 and 'Todos' not in professional_seleccionado:
-            selected_professional_auditor = professional_seleccionado[0] # Obtener el único seleccionado
-            # Solo si el profesional seleccionado es de hecho un responsable de auditoría en el df filtrado
-            if selected_professional_auditor in df_filtered['RESPONSABLE AUDITORIA'].unique():
-                st.subheader(f"Evolución Diaria de Auditorías para: {selected_professional_auditor}")
-
-                df_daily_activity_auditor = df_filtered[df_filtered['RESPONSABLE AUDITORIA'] == selected_professional_auditor].copy()
-                df_daily_activity_auditor['FECHA DE REGISTRO DE NOVEDAD'] = pd.to_datetime(df_daily_activity_auditor['FECHA DE REGISTRO DE NOVEDAD'])
-                df_daily_counts_auditor = df_daily_activity_auditor.groupby(df_daily_activity_auditor['FECHA DE REGISTRO DE NOVEDAD'].dt.date).size().reset_index(name='Total Auditorías Diarias')
-                df_daily_counts_auditor.columns = ['Fecha', 'Total Auditorías Diarias']
-                df_daily_counts_auditor = df_daily_counts_auditor.sort_values(by='Fecha')
-
-                if not df_daily_counts_auditor.empty:
-                    st.markdown(f"**Acumulado Diario de Auditorías para {selected_professional_auditor}:**")
-                    st.dataframe(df_daily_counts_auditor)
-
-                    fig_daily_auditor, ax_daily_auditor = plt.subplots(figsize=(14, 7))
-                    ax_daily_auditor.plot(df_daily_counts_auditor['Fecha'], df_daily_counts_auditor['Total Auditorías Diarias'], marker='o', linestyle='-', color='firebrick')
-
-                    ax_daily_auditor.set_title(f'Evolución de Auditorías Diarias por {selected_professional_auditor}')
-                    ax_daily_auditor.set_xlabel('Período (Día)')
-                    ax_daily_auditor.set_ylabel('Total Auditorías Diarias')
-                    ax_daily_auditor.grid(True, linestyle='--', alpha=0.7)
-
-                    fig_daily_auditor.autofmt_xdate(rotation=45)
-                    ax_daily_auditor.xaxis.set_major_locator(plt.MaxNLocator(nbins=10))
-
-                    for i, txt in enumerate(df_daily_counts_auditor['Total Auditorías Diarias']):
-                        ax_daily_auditor.annotate(txt, (df_daily_counts_auditor['Fecha'].iloc[i], df_daily_counts_auditor['Total Auditorías Diarias'].iloc[i]),
-                                                textcoords="offset points", xytext=(0,10), ha='center', fontsize=9, color='darkred')
-
-                    ax_daily_auditor.set_ylim(bottom=0, top=df_daily_counts_auditor['Total Auditorías Diarias'].max() * 1.15)
-
-                    plt.tight_layout()
-                    st.pyplot(fig_daily_auditor)
-                else:
-                    st.info(f"No hay datos de auditorías diarias para {selected_professional_auditor} en el rango de fechas seleccionado.")
-            else:
-                st.info(f"El profesional '{selected_professional_auditor}' no aparece como 'Responsable de Auditoría' en los datos filtrados.")
-
-    else: # Esto cubre el caso de que df_for_analysis_auditoria esté vacío
-        st.info("No hay datos de auditorías para los profesionales seleccionados en el rango de fechas.")
-
-else:
-    st.warning("Las columnas 'RESPONSABLE AUDITORIA' o 'IDENTIFICACIÓN DEL PPL' no se encontraron en el archivo. No se puede calcular la productividad por auditoría.")
+        plt.tight_layout()
+        st.pyplot(fig_daily_detail)
+    else:
+        st.info(f"No hay datos de actividad diaria detallada para {selected_professional_detail} en el rango de fechas seleccionado.")
