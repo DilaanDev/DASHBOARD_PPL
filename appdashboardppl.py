@@ -3,8 +3,9 @@ import pandas as pd
 import datetime
 import os
 import matplotlib.pyplot as plt
-import seaborn as sns # Importar Seaborn
+import seaborn as sns
 from matplotlib.ticker import MaxNLocator
+from matplotlib import cm # Para usar mapas de color monocromáticos
 
 # --- Configuración de la página ---
 st.set_page_config(
@@ -13,7 +14,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Configuración de Estilo de Gráficas (para que sea "bacana") ---
+# --- Configuración de Estilo de Gráficas ---
 sns.set_style("darkgrid") # Aplica un estilo de rejilla oscuro a todas las gráficas
 plt.rcParams['font.size'] = 12 # Tamaño de fuente general
 plt.rcParams['axes.titlesize'] = 16 # Tamaño del título de los ejes
@@ -286,6 +287,8 @@ if professional_options_unified.size > 0:
         key="filter_professional_unified"
     )
 
+    is_single_professional_selected = (len(professional_seleccionado) == 1) and ('Todos' not in professional_seleccionado)
+
     if 'Todos' in professional_seleccionado and len(professional_seleccionado) > 1:
         professional_seleccionado = ['Todos']
         st.sidebar.info("Cuando 'Todos' está seleccionado, se ignoran las otras selecciones de profesional.")
@@ -295,6 +298,7 @@ if professional_options_unified.size > 0:
 else:
     st.sidebar.info("Carga el archivo para acceder a los filtros de profesional.")
     professional_seleccionado = ['Todos']
+    is_single_professional_selected = False # Si no hay profesionales, no hay uno solo seleccionado
 
 if 'Todos' not in professional_seleccionado:
     df_filtered_unified = df_unified[df_unified['Profesional'].isin(professional_seleccionado)].copy()
@@ -305,49 +309,57 @@ if df_filtered_unified.empty:
     st.warning("No hay datos disponibles para la combinación de filtros seleccionada. Por favor, ajusta los filtros.")
     st.stop()
 
-# --- ANÁLISIS DE PRODUCTIVIDAD UNIFICADO ---
-st.markdown("---")
-st.markdown("## Productividad General del Profesional (Registro y Auditoría)")
-st.markdown("Aquí puedes ver la productividad consolidada de los profesionales, basada en los pacientes que han **registrado o auditado**.")
+# --- CONDICIONAL PARA MOSTRAR GRÁFICO UNIFICADO O SÓLO EL DETALLE ---
+if not is_single_professional_selected:
+    # --- ANÁLISIS DE PRODUCTIVIDAD UNIFICADO (si NO es un solo profesional) ---
+    st.markdown("---")
+    st.markdown("## Productividad General del Profesional (Registro y Auditoría)")
+    st.markdown("Aquí puedes ver la productividad consolidada de los profesionales, basada en los pacientes que han **registrado o auditado**.")
 
-df_patients_per_professional_unified = df_filtered_unified.groupby('Profesional').agg(
-    pacientes_unicos_total=('IDENTIFICACIÓN DEL PPL', 'nunique'),
-    actividades_totales=('IDENTIFICACIÓN DEL PPL', 'count')
-).reset_index()
+    df_patients_per_professional_unified = df_filtered_unified.groupby('Profesional').agg(
+        pacientes_unicos_total=('IDENTIFICACIÓN DEL PPL', 'nunique'),
+        actividades_totales=('IDENTIFICACIÓN DEL PPL', 'count')
+    ).reset_index()
 
-df_patients_per_professional_unified['pacientes_unicos_total'] = df_patients_per_professional_unified['pacientes_unicos_total'].astype(int)
-df_patients_per_professional_unified['actividades_totales'] = df_patients_per_professional_unified['actividades_totales'].astype(int)
+    df_patients_per_professional_unified['pacientes_unicos_total'] = df_patients_per_professional_unified['pacientes_unicos_total'].astype(int)
+    df_patients_per_professional_unified['actividades_totales'] = df_patients_per_professional_unified['actividades_totales'].astype(int)
 
-st.markdown("### Tabla de Pacientes Únicos y Actividades Totales por Profesional")
-st.dataframe(df_patients_per_professional_unified.set_index('Profesional'))
+    st.markdown("### Tabla de Pacientes Únicos y Actividades Totales por Profesional")
+    st.dataframe(df_patients_per_professional_unified.set_index('Profesional'))
 
-# Generar el gráfico de barras unificado
-if not df_patients_per_professional_unified.empty:
-    fig_unified, ax_unified = plt.subplots(figsize=(14, 7))
-    bars_unified = ax_unified.bar(df_patients_per_professional_unified['Profesional'],
-                                  df_patients_per_professional_unified['pacientes_unicos_total'],
-                                  color='#28a745') # Color verde vibrante
+    # Generar el gráfico de barras unificado con colores monocromáticos
+    if not df_patients_per_professional_unified.empty:
+        fig_unified, ax_unified = plt.subplots(figsize=(14, 7))
 
-    ax_unified.set_title('Pacientes Únicos por Profesional (Registro y Auditoría)')
-    ax_unified.set_xlabel('Profesional')
-    ax_unified.set_ylabel('Número de Pacientes Únicos')
+        # Definir un mapa de color monocromático (ej. 'Greens', 'Blues', 'Purples', 'Oranges')
+        # Puedes probar 'viridis_r' o 'plasma_r' si quieres un degradado inverso
+        cmap = cm.get_cmap('Greens', len(df_patients_per_professional_unified))
+        colors = [cmap(i) for i in range(cmap.N)]
 
-    # Establecer la rotación de las etiquetas del eje X directamente
-    plt.xticks(rotation=45, ha='right')
+        bars_unified = ax_unified.bar(df_patients_per_professional_unified['Profesional'],
+                                      df_patients_per_professional_unified['pacientes_unicos_total'],
+                                      color=colors) # Asignar un color diferente a cada barra
 
-    # Añadir etiquetas de valor a las barras
-    for bar in bars_unified:
-        yval = bar.get_height()
-        ax_unified.text(bar.get_x() + bar.get_width()/2, yval + 5, int(yval), ha='center', va='bottom', fontsize=10)
+        ax_unified.set_title('Pacientes Únicos por Profesional (Registro y Auditoría)')
+        ax_unified.set_xlabel('Profesional')
+        ax_unified.set_ylabel('Número de Pacientes Únicos')
 
-    ax_unified.set_ylim(bottom=0, top=df_patients_per_professional_unified['pacientes_unicos_total'].max() * 1.15)
-    plt.tight_layout() # Asegura que todos los elementos se ajusten bien
-    st.pyplot(fig_unified)
-else:
-    st.info("No hay datos de productividad unificada para los filtros seleccionados.")
+        plt.xticks(rotation=45, ha='right')
 
-# --- SECCIÓN OPCIONAL: DETALLE DE EVOLUCIÓN DIARIA POR TIPO DE ACTIVIDAD (SI SELECCIONA UN SOLO PROFESIONAL) ---
-if len(professional_seleccionado) == 1 and 'Todos' not in professional_seleccionado:
+        for bar in bars_unified:
+            yval = bar.get_height()
+            ax_unified.text(bar.get_x() + bar.get_width()/2, yval + 5, int(yval), ha='center', va='bottom', fontsize=10)
+
+        ax_unified.set_ylim(bottom=0, top=df_patients_per_professional_unified['pacientes_unicos_total'].max() * 1.15)
+        plt.tight_layout()
+        st.pyplot(fig_unified)
+    else:
+        st.info("No hay datos de productividad unificada para los filtros seleccionados.")
+
+# --- SECCIÓN: DETALLE DE EVOLUCIÓN DIARIA POR TIPO DE ACTIVIDAD (si es UN SOLO PROFESIONAL) ---
+# Esta sección ahora se muestra INDEPENDIENTEMENTE de si "Todos" está seleccionado o no,
+# pero solo si se ha filtrado a un único profesional.
+if is_single_professional_selected:
     selected_professional_detail = professional_seleccionado[0]
     st.markdown("---")
     st.subheader(f"Evolución Diaria Detallada para: {selected_professional_detail}")
@@ -366,9 +378,9 @@ if len(professional_seleccionado) == 1 and 'Todos' not in professional_seleccion
         fig_daily_detail, ax_daily_detail = plt.subplots(figsize=(14, 7))
 
         if 'Registro' in df_daily_counts_detail.columns:
-            ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Registro'], marker='o', linestyle='-', color='#007bff', label='Registros Diarios') # Color azul profesional
+            ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Registro'], marker='o', linestyle='-', color='#007bff', label='Registros Diarios')
         if 'Auditoría' in df_daily_counts_detail.columns:
-            ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Auditoría'], marker='x', linestyle='--', color='#dc3545', label='Auditorías Diarias') # Color rojo/naranja suave
+            ax_daily_detail.plot(df_daily_counts_detail['FECHA_DIA'], df_daily_counts_detail['Auditoría'], marker='x', linestyle='--', color='#dc3545', label='Auditorías Diarias')
 
         ax_daily_detail.set_title(f'Evolución Diaria de Actividades por {selected_professional_detail}')
         ax_daily_detail.set_xlabel('Período (Día)')
