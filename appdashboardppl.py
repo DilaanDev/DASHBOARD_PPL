@@ -382,8 +382,9 @@ if is_single_professional_selected:
             # Añadir etiquetas de valor para cada punto de Registro
             for i, txt in enumerate(df_daily_counts_detail['Registro']):
                 if txt > 0: # Solo si hay actividad para ese día
+                    # Ajuste: Alinear el texto con la fecha en el eje X
                     ax_daily_detail.annotate(int(txt), (df_daily_counts_detail['FECHA_DIA'].iloc[i], df_daily_counts_detail['Registro'].iloc[i]),
-                                            textcoords="offset points", xytext=(0,10), ha='center', fontsize=9, color='blue') # Color de texto azul
+                                            textcoords="offset points", xytext=(0,10), ha='center', fontsize=9, color='blue')
             relevant_columns_for_max.append('Registro')
 
         if 'Auditoría' in df_daily_counts_detail.columns:
@@ -392,8 +393,9 @@ if is_single_professional_selected:
             # Añadir etiquetas de valor para cada punto de Auditoría
             for i, txt in enumerate(df_daily_counts_detail['Auditoría']):
                 if txt > 0: # Solo si hay actividad para ese día
+                    # Ajuste: Alinear el texto con la fecha en el eje X
                     ax_daily_detail.annotate(int(txt), (df_daily_counts_detail['FECHA_DIA'].iloc[i], df_daily_counts_detail['Auditoría'].iloc[i]),
-                                            textcoords="offset points", xytext=(0,-15), ha='center', fontsize=9, color='red') # Color de texto rojo, ligeramente por debajo
+                                            textcoords="offset points", xytext=(0,-15), ha='center', fontsize=9, color='red')
             relevant_columns_for_max.append('Auditoría')
 
 
@@ -403,8 +405,10 @@ if is_single_professional_selected:
         ax_daily_detail.grid(True, linestyle='--', alpha=0.7)
         ax_daily_detail.legend()
 
-        fig_daily_detail.autofmt_xdate(rotation=45)
-        ax_daily_detail.xaxis.set_major_locator(plt.MaxNLocator(nbins=10))
+        # Establecer los ticks del eje X para que coincidan con las fechas de los datos
+        # Esto es crucial para que los puntos y las etiquetas de los ticks se alineen
+        ax_daily_detail.set_xticks(df_daily_counts_detail['FECHA_DIA'])
+        fig_daily_detail.autofmt_xdate(rotation=45) # Sigue siendo útil para el formato y rotación de las etiquetas
 
         # --- FIX: Manejo robusto del límite superior del eje Y ---
         if relevant_columns_for_max:
